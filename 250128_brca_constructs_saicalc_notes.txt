@@ -1,0 +1,37 @@
+#These are the commands used to generate the SAI-10k-calc predictions in Supplemental Table S4.
+
+#Starting files:
+#NCBI RefSeq hg38 from UCSC table browser: refseq_full_hg38.txt
+#VCF file of BRCA1 and BRCA2 variants: brca_constructs_hg38.vcf
+
+#SORT VCF FILE
+cat <(grep ^# brca_constructs_hg38.vcf) <(grep -v ^# brca_constructs_hg38.vcf | sort) > brca_constructs_hg38_sort.vcf
+
+# TABIX INDEX VCF FILE
+module load htslib/1.9
+bgzip -c brca_constructs_hg38_sort.vcf > brca_constructs_hg38.vcf.gz
+tabix -p vcf brca_constructs_hg38.vcf.gz
+
+#SPLICEAI: PRE-PROCESS TRANSCRIPTS
+#Create gene and canonical transcript list
+echo "Gene RefSeq_ID
+BRCA2 NM_000059.4
+BRCA1 NM_007294.4" > brca12_gene_list.txt
+
+cat brca12_gene_list.txt | tr " " "\t" > tmp
+mv tmp brca12_gene_list.txt
+
+module load R/4.2.0
+Rscript download_tx.R -g brca12_gene_list.txt --out_refseq brca12_out_refseq.txt --out_tx_spliceai brca12_out_tx_spliceai.txt --refseq_full refseq_full_hg38.txt
+
+#RUN SPLICEAI
+module load miniconda3/current
+source activate SpliceAI-bw2-1.3.1
+export OMP_NUM_THREADS=1
+
+spliceai -I brca_constructs_hg38.vcf.gz -O brca_constructs_hg38_spliceai.vcf -R /reference/genomes/GRCh38_no_alt_analysis_set/indexes/SAMTOOLS_1.2/GCA_000001405.15_GRCh38_no_alt_analysis_set.fa -A brca12_out_tx_spliceai.txt -D 4999
+
+
+#RUN SAI-10K-CALC
+module load R/4.2.0
+Rscript spliceAI_parser.R -i brca_constructs_hg38_spliceai.vcf -r brca12_out_refseq.txt -o brca_constructs_hg38_saicalc_refalt.txt --ref hg38 --include TRUE
